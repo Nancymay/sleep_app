@@ -3,7 +3,10 @@ import type { SleepEntry } from "../types/sleep";
 
 type ChartScreenProps = {
   entries: SleepEntry[];
+  animationSeed: number;
 };
+
+type ChartMetricTab = "sleep" | "quality";
 
 type ChartPoint = {
   x: number;
@@ -11,87 +14,54 @@ type ChartPoint = {
   entry: SleepEntry;
 };
 
-function getLastNDates(days: number) {
-  const result: string[] = [];
-  const today = new Date();
+function toLocalDateString(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
-  for (let offset = days - 1; offset >= 0; offset -= 1) {
-    const date = new Date(today);
-    date.setDate(today.getDate() - offset);
-    result.push(date.toISOString().slice(0, 10));
-  }
+function getWeekStart(baseDate: Date) {
+  const date = new Date(baseDate);
+  const day = date.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + mondayOffset);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
 
-  return result;
+function getWeekDates(weekOffset: number) {
+  const start = getWeekStart(new Date());
+  start.setDate(start.getDate() + weekOffset * 7);
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return toLocalDateString(date);
+  });
 }
 
 function formatDay(dateString: string) {
-  return new Date(`${dateString}T00:00:00`).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
+  const [year, month, day] = dateString.split("-");
+  if (!year || !month || !day) return dateString;
+  return `${day}.${month}`;
 }
 
-function getWeekDates() {
-  const today = new Date();
-  const day = today.getDay();
-  const mondayOffset = day === 0 ? -6 : 1 - day;
-  const monday = new Date(today);
-  monday.setDate(today.getDate() + mondayOffset);
-
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(monday);
-    date.setDate(monday.getDate() + index);
-    return date.toISOString().slice(0, 10);
-  });
+function formatWeekRange(dates: string[]) {
+  if (dates.length === 0) return "";
+  return `${formatDay(dates[0])} - ${formatDay(dates[dates.length - 1])}`;
 }
 
-function seededNumber(seed: string) {
-  let hash = 0;
-  for (let index = 0; index < seed.length; index += 1) {
-    hash = (hash << 5) - hash + seed.charCodeAt(index);
-    hash |= 0;
-  }
-  return Math.abs(hash);
-}
-
-function createMockEntry(date: string): SleepEntry {
-  const seed = seededNumber(date);
-  const hours = 5 + (seed % 11) * 0.5;
-  const quality = Math.max(1, Math.min(10, Math.round((hours / 10) * 10)));
-  const factorPool = [
-    { emoji: "📱", label: "Поздний экран" },
-    { emoji: "☕", label: "Кофе" },
-    { emoji: "🚶", label: "Прогулка" },
-    { emoji: "🧘", label: "Йога" },
-    { emoji: "🌧️", label: "Погода" },
-  ];
-  const factorCount = 1 + (seed % 2);
-  const factors = Array.from({ length: factorCount }, (_, index) => {
-    return factorPool[(seed + index) % factorPool.length];
-  });
-
-  return { date, hours, quality, factors };
-}
-
-export function ChartScreen({ entries }: ChartScreenProps) {
+export function ChartScreen({ entries, animationSeed }: ChartScreenProps) {
   const [selectedEntry, setSelectedEntry] = useState<SleepEntry | null>(null);
-  const dates = useMemo(() => getLastNDates(14), []);
-  const weekDates = useMemo(() => getWeekDates(), []);
-
-  const entryMap = useMemo(() => {
-    const realEntriesMap = new Map(entries.map((entry) => [entry.date, entry]));
-    const today = new Date().toISOString().slice(0, 10);
-
-    weekDates.forEach((date) => {
-      const isPastOrToday = date <= today;
-      const isVisibleInChart = dates.includes(date);
-      if (!realEntriesMap.has(date) && isPastOrToday && isVisibleInChart) {
-        realEntriesMap.set(date, createMockEntry(date));
-      }
-    });
-
-    return realEntriesMap;
-  }, [entries, weekDates, dates]);
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [metricTab, setMetricTab] = useState<ChartMetricTab>("sleep");
+  const dates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
+  const entryMap = useMemo(
+    () => new Map(entries.map((entry) => [entry.date, entry])),
+    [entries],
+  );
+  const isQualityTab = metricTab === "quality";
 
   const recentEntries = useMemo(
     () => dates.map((date) => entryMap.get(date)).filter((entry): entry is SleepEntry => Boolean(entry)),
@@ -99,42 +69,57 @@ export function ChartScreen({ entries }: ChartScreenProps) {
   );
 
   const bestDays = useMemo(() => {
+    if (isQualityTab) {
+      return [...recentEntries]
+        .filter((entry) => entry.quality > 5)
+        .sort((a, b) => a.date.localeCompare(b.date));
+    }
+
     return [...recentEntries]
-      .sort((a, b) => b.quality - a.quality || b.hours - a.hours)
-      .slice(0, 3);
-  }, [recentEntries]);
+      .filter((entry) => entry.hours > 6)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [recentEntries, isQualityTab]);
 
   const worstDays = useMemo(() => {
+    if (isQualityTab) {
+      return [...recentEntries]
+        .filter((entry) => entry.quality <= 5)
+        .sort((a, b) => a.date.localeCompare(b.date));
+    }
+
     return [...recentEntries]
-      .sort((a, b) => a.quality - b.quality || a.hours - b.hours)
-      .slice(0, 3);
-  }, [recentEntries]);
+      .filter((entry) => entry.hours <= 6)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [recentEntries, isQualityTab]);
 
   const chart = useMemo(() => {
     const axisWidth = 34;
     const width = 340;
-    const height = 220;
+    const height = 272;
     const paddingX = 10;
-    const paddingY = 12;
+    const paddingY = 26;
     const stepX = (width - paddingX * 2) / (dates.length - 1);
 
     const maxFromData = recentEntries.length > 0 ? Math.max(...recentEntries.map((entry) => entry.hours)) : 8;
-    const yMax = Math.max(8, Math.ceil(maxFromData / 2) * 2);
-    const yMin = 0;
+    const yMax = isQualityTab ? 10 : Math.max(10, Math.ceil((maxFromData + 1) / 2) * 2);
+    const yMin = isQualityTab ? 1 : 0;
 
-    const ticks = Array.from({ length: 5 }, (_, index) => {
-      const value = yMax - (index * (yMax - yMin)) / 4;
-      const y = paddingY + (index * (height - paddingY * 2)) / 4;
-      return { value, y };
-    });
+    const valueToY = (value: number) =>
+      height - paddingY - ((value - yMin) / (yMax - yMin || 1)) * (height - paddingY * 2);
+
+    const tickValues = isQualityTab
+      ? Array.from({ length: 10 }, (_, index) => 10 - index)
+      : Array.from({ length: 5 }, (_, index) => yMax - (index * (yMax - yMin)) / 4);
+
+    const ticks = tickValues.map((value) => ({ value, y: valueToY(value) }));
 
     const points: ChartPoint[] = dates
       .map((date, index) => {
         const entry = entryMap.get(date);
         if (!entry) return null;
 
-        const normalized = (entry.hours - yMin) / (yMax - yMin || 1);
-        const y = height - paddingY - normalized * (height - paddingY * 2);
+        const metricValue = isQualityTab ? entry.quality : entry.hours;
+        const y = valueToY(metricValue);
 
         return {
           entry,
@@ -152,18 +137,58 @@ export function ChartScreen({ entries }: ChartScreenProps) {
       points,
       polyline: points.map((point) => `${point.x},${point.y}`).join(" "),
     };
-  }, [dates, entryMap, recentEntries]);
+  }, [dates, entryMap, recentEntries, isQualityTab]);
 
   return (
     <section className="screen">
       <h1 className="title">График сна</h1>
+      <div className="week-switcher">
+        <button
+          type="button"
+          className="week-arrow"
+          aria-label="Предыдущая неделя"
+          onClick={() => setWeekOffset((prev) => prev - 1)}
+        >
+          ←
+        </button>
+        <input
+          className="week-range-input"
+          value={formatWeekRange(dates)}
+          readOnly
+          aria-label="Диапазон недели"
+        />
+        <button
+          type="button"
+          className="week-arrow"
+          aria-label="Следующая неделя"
+          onClick={() => setWeekOffset((prev) => prev + 1)}
+        >
+          →
+        </button>
+      </div>
+      <div className="chart-metric-tabs">
+        <button
+          type="button"
+          className={metricTab === "sleep" ? "metric-tab active" : "metric-tab"}
+          onClick={() => setMetricTab("sleep")}
+        >
+          Сон
+        </button>
+        <button
+          type="button"
+          className={metricTab === "quality" ? "metric-tab active" : "metric-tab"}
+          onClick={() => setMetricTab("quality")}
+        >
+          Качество сна
+        </button>
+      </div>
 
       <div className="card chart-card">
         <div className="chart-wrap">
           <div className="y-axis" style={{ width: chart.axisWidth, height: chart.height }}>
             {chart.ticks.map((tick) => (
               <span key={tick.value} style={{ top: tick.y }} className="y-axis-label">
-                {tick.value.toFixed(0)}ч
+                {isQualityTab ? tick.value.toFixed(0) : `${tick.value.toFixed(0)}ч`}
               </span>
             ))}
           </div>
@@ -176,20 +201,27 @@ export function ChartScreen({ entries }: ChartScreenProps) {
             <svg
               viewBox={`0 0 ${chart.width} ${chart.height}`}
               className="chart-svg"
-              aria-label="График часов сна"
+              aria-label={isQualityTab ? "График качества сна" : "График часов сна"}
             >
               {chart.points.length > 1 && (
                 <polyline
-                  key={chart.polyline}
+                  key={`${animationSeed}-${metricTab}-${chart.polyline}`}
                   className="chart-line"
+                  pathLength={1}
                   points={chart.polyline}
                 />
               )}
 
               {chart.points.map((point) => (
-                <g key={point.entry.date}>
+                <g key={point.entry.date} onClick={() => setSelectedEntry(point.entry)}>
+                  <circle
+                    className="chart-hit-area"
+                    cx={point.x}
+                    cy={point.y}
+                    r="20"
+                  />
                   {point.entry.factors[0]?.emoji ? (
-                    <text x={point.x} y={point.y - 16} textAnchor="middle" className="point-emoji">
+                    <text x={point.x} y={point.y - 20} textAnchor="middle" className="point-emoji">
                       {point.entry.factors[0].emoji}
                     </text>
                   ) : null}
@@ -197,21 +229,31 @@ export function ChartScreen({ entries }: ChartScreenProps) {
                     className="chart-point"
                     cx={point.x}
                     cy={point.y}
-                    r="5"
-                    onClick={() => setSelectedEntry(point.entry)}
+                    r="12"
                   />
+                  <text x={point.x} y={point.y + 4} textAnchor="middle" className="point-quality">
+                    {isQualityTab ? point.entry.hours.toFixed(1).replace(".0", "") : point.entry.quality}
+                  </text>
                 </g>
               ))}
             </svg>
           </div>
         </div>
 
-        <div className="chart-labels">
-          {dates.map((date, index) => (
-            <span key={date} className={index % 2 === 0 ? "x-label" : "x-label muted"}>
-              {index % 2 === 0 ? formatDay(date) : ""}
-            </span>
-          ))}
+        <div
+          className="chart-labels-wrap"
+          style={{ marginLeft: chart.axisWidth, width: chart.width - 20 }}
+        >
+          <div
+            className="chart-labels"
+            style={{ gridTemplateColumns: `repeat(${dates.length}, minmax(0, 1fr))` }}
+          >
+            {dates.map((date) => (
+              <span key={date} className="x-label">
+                {formatDay(date)}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
 

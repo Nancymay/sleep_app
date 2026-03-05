@@ -8,3 +8,5 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 )
+import { registerSW } from "virtual:pwa-register";
+registerSW({ immediate: true });

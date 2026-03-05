@@ -11,8 +11,15 @@ const DEFAULT_FACTORS: SleepFactor[] = [
   { emoji: "📱", label: "Поздний экран" },
 ];
 
+function toLocalDateString(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function getTodayDate() {
-  return new Date().toISOString().slice(0, 10);
+  return toLocalDateString(new Date());
 }
 
 export function useSleepData() {
@@ -27,12 +34,10 @@ export function useSleepData() {
     return entries.find((entry) => entry.date === today);
   }, [entries]);
 
-  function saveTodayEntry(data: Omit<SleepEntry, "date">) {
-    const today = getTodayDate();
-
+  function saveEntry(date: string, data: Omit<SleepEntry, "date">) {
     setEntries((prev) => {
-      const filtered = prev.filter((entry) => entry.date !== today);
-      const next = [...filtered, { ...data, date: today }];
+      const filtered = prev.filter((entry) => entry.date !== date);
+      const next = [...filtered, { ...data, date }];
       return next.sort((a, b) => a.date.localeCompare(b.date));
     });
   }
@@ -80,7 +85,7 @@ export function useSleepData() {
     entries,
     factors,
     todayEntry,
-    saveTodayEntry,
+    saveEntry,
     addFactor,
     removeFactor,
   };

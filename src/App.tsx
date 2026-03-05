@@ -8,8 +8,16 @@ import "./styles.css";
 
 export default function App() {
   const [tab, setTab] = useState<SleepTab>("note");
-  const { entries, factors, todayEntry, saveTodayEntry, addFactor, removeFactor } =
+  const [chartAnimationSeed, setChartAnimationSeed] = useState(0);
+  const { entries, factors, saveEntry, addFactor, removeFactor } =
     useSleepData();
+
+  function handleTabChange(nextTab: SleepTab) {
+    if (nextTab === "chart" && nextTab !== tab) {
+      setChartAnimationSeed((prev) => prev + 1);
+    }
+    setTab(nextTab);
+  }
 
   return (
     <main className="app-shell">
@@ -17,18 +25,18 @@ export default function App() {
         <div className="content-area">
           {tab === "note" ? (
             <NoteScreen
+              entries={entries}
               factors={factors}
-              todayEntry={todayEntry}
-              onSave={saveTodayEntry}
+              onSave={saveEntry}
               onCreateFactor={addFactor}
               onDeleteFactor={removeFactor}
             />
           ) : (
-            <ChartScreen entries={entries} />
+            <ChartScreen entries={entries} animationSeed={chartAnimationSeed} />
           )}
         </div>
 
-        <BottomNav activeTab={tab} onChange={setTab} />
+        <BottomNav activeTab={tab} onChange={handleTabChange} />
       </div>
     </main>
   );
